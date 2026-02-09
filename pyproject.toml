@@ -1,0 +1,13 @@
+[project]
+name = "stat-arb-research-pipeline"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "pandas",
+  "yfinance",
+  "statsmodels",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
