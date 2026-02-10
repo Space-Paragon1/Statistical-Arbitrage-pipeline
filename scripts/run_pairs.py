@@ -9,6 +9,8 @@ from sarb.strategy.pairs import generate_spread_positions
 from sarb.backtest.engine import backtest_pairs
 from sarb.metrics.performance import sharpe, max_drawdown, cagr
 from sarb.stats.bootstrap import bootstrap_mean_ci, bootstrap_sharpe_ci
+from sarb.stats.cointegration import engle_granger_adf_pvalue, estimate_half_life
+from sarb.backtest.walkforward import walkforward_pairs_backtest
 
 def main():
     cfg = PairConfig()
@@ -29,21 +31,33 @@ def main():
     spread = compute_spread(y_full, x_full, alpha, beta)
     z = rolling_zscore(spread, cfg.lookback_z)
 
+    # Research diagnostics (on TRAIN spread to avoid test leakage)
+    spread_train = spread.loc[train_px.index]
+    adf_p = engle_granger_adf_pvalue(spread_train)
+    hl = estimate_half_life(spread_train)
+
+    print("=== Research Diagnostics (Train Window) ===")
+    print(f"ADF p-value (spread stationarity): {adf_p:.6f}")
+    print(f"Estimated half-life (days): {hl:.2f}")
+
+
     # Signals / positions
     pos = generate_spread_positions(z, cfg.entry_z, cfg.exit_z)
 
     # Backtest on full period, then evaluate on test only
-    bt = backtest_pairs(
+    bt = walkforward_pairs_backtest(
         prices=prices,
         y=cfg.y_ticker,
         x=cfg.x_ticker,
-        alpha=alpha,
-        beta=beta,
-        spread_pos=pos,
+        train_lookback=504,      # ~2 years of trading days
+        z_lookback=cfg.lookback_z,
+        entry_z=cfg.entry_z,
+        exit_z=cfg.exit_z,
         fee_bps=cfg.fee_bps,
         slippage_bps=cfg.slippage_bps,
         leverage=cfg.leverage,
     )
+
 
     # Slice test window
     test_idx = test_px.index
