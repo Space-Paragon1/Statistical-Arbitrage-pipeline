@@ -27,3 +27,9 @@ See `src/sarb/` modules for ingestion, features, split, strategy, backtest, metr
 ```bash
 pip install -e .
 python scripts/run_pairs.py
+
+- No lookahead: signals shifted by 1 day
+- Train-only / walk-forward re-fit: alpha/beta refit only on past window
+- Cointegration diagnostic: ADF p-value on train residual spread
+- Half-life estimate: sanity check for mean reversion speed
+- Bootstrap confidence intervals: for mean return + Sharpe
