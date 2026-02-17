@@ -106,27 +106,38 @@ def scan_pairs(
     max_pairs: int = 300,
     fdr_q: float = 0.10,
     top_k: int = 10,
+    prefilter_method: str = "correlation",
 ) -> list[PairResult]:
     """
     Pipeline:
-    1) Correlation prefilter on TRAIN returns
+    1) Prefilter pairs (correlation or ML clustering) on TRAIN returns
     2) For candidates, compute ADF p-value (TRAIN) and val Sharpe (VAL)
     3) Apply BH-FDR on ADF p-values
     4) Rank by validation Sharpe and return top_k
+
+    prefilter_method: "correlation" (default) or "ml" (OPTICS clustering)
     """
     train_px = prices.loc[train_idx, tickers].dropna(axis=1, how="any")
     tickers_ok = list(train_px.columns)
 
-    # Prefilter by correlation on TRAIN
-    candidates = []
-    for y, x in itertools.combinations(tickers_ok, 2):
-        c = _pair_corr(train_px, y, x)
-        if np.isfinite(c) and abs(c) >= corr_threshold:
-            candidates.append((y, x, c))
+    if prefilter_method == "ml":
+        from sarb.research.ml_select import ml_prefilter_pairs
+        ml_pairs = ml_prefilter_pairs(
+            prices=prices, tickers=tickers_ok, train_idx=train_idx,
+            method="optics", max_pairs=max_pairs,
+        )
+        candidates = [(y, x, 0.0) for y, x in ml_pairs]
+    else:
+        # Prefilter by correlation on TRAIN
+        candidates = []
+        for y, x in itertools.combinations(tickers_ok, 2):
+            c = _pair_corr(train_px, y, x)
+            if np.isfinite(c) and abs(c) >= corr_threshold:
+                candidates.append((y, x, c))
 
-    # keep most correlated first, cap
-    candidates.sort(key=lambda t: abs(t[2]), reverse=True)
-    candidates = candidates[:max_pairs]
+        # keep most correlated first, cap
+        candidates.sort(key=lambda t: abs(t[2]), reverse=True)
+        candidates = candidates[:max_pairs]
 
     results: list[PairResult] = []
     for y, x, _c in candidates:
