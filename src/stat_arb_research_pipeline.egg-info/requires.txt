@@ -2,3 +2,17 @@ numpy
 pandas
 yfinance
 statsmodels
+
+[all]
+matplotlib>=3.5
+scikit-learn>=1.0
+pytest>=7.0
+
+[dev]
+pytest>=7.0
+
+[ml]
+scikit-learn>=1.0
+
+[viz]
+matplotlib>=3.5
