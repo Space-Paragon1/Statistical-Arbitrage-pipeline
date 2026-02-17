@@ -7,4 +7,14 @@ Requires-Dist: numpy
 Requires-Dist: pandas
 Requires-Dist: yfinance
 Requires-Dist: statsmodels
+Provides-Extra: viz
+Requires-Dist: matplotlib>=3.5; extra == "viz"
+Provides-Extra: ml
+Requires-Dist: scikit-learn>=1.0; extra == "ml"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Provides-Extra: all
+Requires-Dist: matplotlib>=3.5; extra == "all"
+Requires-Dist: scikit-learn>=1.0; extra == "all"
+Requires-Dist: pytest>=7.0; extra == "all"
 Dynamic: license-file
