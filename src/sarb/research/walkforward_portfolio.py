@@ -10,6 +10,13 @@ from sarb.backtest.engine import backtest_pairs
 from sarb.portfolio.vol_target import vol_target_scale
 
 
+def _fit_hedge(y: pd.Series, x: pd.Series, method: str = "ols") -> tuple[float, float]:
+    if method == "kalman":
+        from sarb.features.kalman import fit_hedge_ratio_kalman
+        return fit_hedge_ratio_kalman(y, x)
+    return fit_hedge_ratio(y, x)
+
+
 @dataclass
 class WFConfig:
     top_k: int = 5
@@ -25,10 +32,17 @@ class WFConfig:
     slippage_bps: float = 0.5
     leverage: float = 1.0  # per pair (portfolio weights scale overall)
 
-        # Vol targeting (new)
+    # Vol targeting
     use_vol_targeting: bool = True
     target_daily_vol: float = 0.008   # ~0.8% daily vol (reasonable baseline)
     max_pair_scale: float = 3.0       # cap leverage multiplier
+
+    # Hedge method
+    hedge_method: str = "ols"  # "ols" or "kalman"
+
+    # Risk management
+    use_correlation_weights: bool = False
+    risk_limits: object = None  # RiskLimits | None
 
 
 def trade_one_pair_window(
@@ -48,7 +62,7 @@ def trade_one_pair_window(
     if len(px_train) < 200:
         return pd.Series(index=trade_idx, data=0.0)
 
-    alpha, beta = fit_hedge_ratio(px_train[y], px_train[x])
+    alpha, beta = _fit_hedge(px_train[y], px_train[x], cfg.hedge_method)
 
     px_sig = prices.loc[all_idx_for_signals, [y, x]].dropna()
     spread = compute_spread(px_sig[y], px_sig[x], alpha, beta)
@@ -87,7 +101,7 @@ def pair_returns_on_window(
     if len(px_train) < 200:
         return pd.Series(index=window_idx, data=0.0)
 
-    alpha, beta = fit_hedge_ratio(px_train[y], px_train[x])
+    alpha, beta = _fit_hedge(px_train[y], px_train[x], cfg.hedge_method)
 
     px_win = prices.loc[window_idx, [y, x]].dropna()
     spread = compute_spread(px_win[y], px_win[x], alpha, beta)
@@ -196,9 +210,27 @@ def walkforward_quarterly_portfolio(
             pair_names.append(name)
             pair_scales.append(scale)
 
-        # 3) Equal-weight across (already vol-normalized) returns
+        # 3) Combine pair returns
         R = pd.concat(pair_rets, axis=1).fillna(0.0)
-        port_q = R.mean(axis=1)
+        R.columns = pair_names
+
+        if cfg.use_correlation_weights and R.shape[1] >= 2:
+            from sarb.risk.covariance import correlation_aware_weights
+            from sarb.risk.limits import apply_position_limits
+            w = correlation_aware_weights(R, target_vol=cfg.target_daily_vol)
+            if cfg.risk_limits is not None:
+                w = apply_position_limits(w, cfg.risk_limits)
+            port_q = (R * w).sum(axis=1)
+        else:
+            port_q = R.mean(axis=1)
+
+        # Drawdown breaker: if triggered, zero out this quarter
+        if cfg.risk_limits is not None:
+            from sarb.risk.limits import check_drawdown_breaker
+            cum_eq = (1.0 + portfolio_ret.loc[portfolio_ret.index < trade_idx[0]]).cumprod()
+            if len(cum_eq) > 10 and check_drawdown_breaker(cum_eq, cfg.risk_limits):
+                port_q = port_q * 0.0
+
         portfolio_ret.loc[trade_idx] = port_q.values
 
         meta_rows.append(
