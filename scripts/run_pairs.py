@@ -11,6 +11,7 @@ from sarb.metrics.performance import sharpe, max_drawdown, cagr
 from sarb.stats.bootstrap import bootstrap_mean_ci, bootstrap_sharpe_ci
 from sarb.stats.cointegration import engle_granger_adf_pvalue, estimate_half_life
 from sarb.backtest.walkforward import walkforward_pairs_backtest
+from sarb.viz.report import save_backtest_report
 
 def main():
     cfg = PairConfig()
@@ -80,6 +81,17 @@ def main():
     print("\n=== Bootstrap (Test Window) ===")
     print(f"Mean CI: [{mean_ci['ci_low']:.6f}, {mean_ci['ci_high']:.6f}] (mean={mean_ci['mean']:.6f})")
     print(f"Sharpe CI: [{sh_ci['ci_low']:.3f}, {sh_ci['ci_high']:.3f}] (sharpe={sh_ci['sharpe']:.3f})")
+
+    # Save plots
+    spread_test = compute_spread(
+        prices[cfg.y_ticker].loc[test_idx],
+        prices[cfg.x_ticker].loc[test_idx],
+        alpha, beta,
+    )
+    z_test = bt.loc[test_idx, "z"]
+    prefix = f"{cfg.y_ticker}_{cfg.x_ticker}"
+    saved = save_backtest_report(bt_test, spread_test, z_test, cfg.entry_z, cfg.exit_z, prefix=prefix)
+    print(f"\nPlots saved: {saved}")
 
 if __name__ == "__main__":
     main()
