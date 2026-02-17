@@ -12,6 +12,7 @@ def backtest_pairs(
     fee_bps: float,
     slippage_bps: float,
     leverage: float = 1.0,
+    short_borrow_cost_bps: float = 0.0,
 ) -> pd.DataFrame:
     """
     prices: DataFrame with columns [y, x] of aligned prices
@@ -43,6 +44,12 @@ def backtest_pairs(
 
     cost_rate = (fee_bps + slippage_bps) / 1e4  # bps -> fraction
     costs = turnover * cost_rate
+
+    # Short borrow cost: daily carry on short leg notional
+    if short_borrow_cost_bps > 0:
+        short_notional = w_x.clip(upper=0.0).abs() + w_y.clip(upper=0.0).abs()
+        borrow_daily = short_borrow_cost_bps / 1e4 / 252
+        costs = costs + short_notional * borrow_daily
 
     port_ret_net = port_ret_gross - costs
 
