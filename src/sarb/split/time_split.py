@@ -1,6 +1,16 @@
 from __future__ import annotations
 import pandas as pd
 
+def time_train_test_split(
+    df: pd.DataFrame, train_frac: float = 0.7
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if not (0 < train_frac < 1):
+        raise ValueError("Need 0<train_frac<1.")
+    n = len(df)
+    i1 = int(n * train_frac)
+    return df.iloc[:i1].copy(), df.iloc[i1:].copy()
+
+
 def time_train_val_test_split(
     df: pd.DataFrame, train_frac: float = 0.6, val_frac: float = 0.2
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
