@@ -1,9 +1,10 @@
 from __future__ import annotations
+
 import pandas as pd
 
-from sarb.features.spread import fit_hedge_ratio, compute_spread, rolling_zscore
-from sarb.strategy.pairs import generate_spread_positions
 from sarb.backtest.engine import backtest_pairs
+from sarb.features.spread import compute_spread, fit_hedge_ratio, rolling_zscore
+from sarb.strategy.pairs import generate_spread_positions
 
 
 def test_backtest_pairs(synthetic_prices):
@@ -15,10 +16,13 @@ def test_backtest_pairs(synthetic_prices):
 
     bt = backtest_pairs(
         prices=synthetic_prices[[y, x]],
-        y=y, x=x,
-        alpha=alpha, beta=beta,
+        y=y,
+        x=x,
+        alpha=alpha,
+        beta=beta,
         spread_pos=pos,
-        fee_bps=1.0, slippage_bps=0.5,
+        fee_bps=1.0,
+        slippage_bps=0.5,
         leverage=1.0,
     )
 
@@ -42,10 +46,13 @@ def test_backtest_pairs_flat_position(synthetic_prices):
 
     bt = backtest_pairs(
         prices=synthetic_prices[[y, x]],
-        y=y, x=x,
-        alpha=0.0, beta=1.0,
+        y=y,
+        x=x,
+        alpha=0.0,
+        beta=1.0,
         spread_pos=pos,
-        fee_bps=1.0, slippage_bps=0.5,
+        fee_bps=1.0,
+        slippage_bps=0.5,
         leverage=1.0,
     )
 

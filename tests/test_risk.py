@@ -1,13 +1,17 @@
 from __future__ import annotations
+
 import numpy as np
 import pandas as pd
+import pytest
 
-from sarb.risk.covariance import ledoit_wolf_shrinkage, correlation_aware_weights
+from sarb.risk.covariance import correlation_aware_weights, ledoit_wolf, ledoit_wolf_shrinkage
 from sarb.risk.limits import (
     RiskLimits,
     apply_position_limits,
+    cap_gross_exposure,
     check_drawdown_breaker,
     compute_short_borrow_cost,
+    current_drawdown,
 )
 
 
@@ -30,7 +34,7 @@ def test_ledoit_wolf_shrinkage_symmetric():
 def test_correlation_aware_weights():
     rng = np.random.default_rng(42)
     ret = pd.DataFrame(rng.normal(0, 0.01, (200, 3)), columns=["P1", "P2", "P3"])
-    w = correlation_aware_weights(ret, target_vol=0.008, max_weight=0.5)
+    w = correlation_aware_weights(ret, max_weight=0.5)
     assert isinstance(w, pd.Series)
     assert len(w) == 3
     assert (w >= 0).all()
@@ -65,3 +69,53 @@ def test_compute_short_borrow_cost():
     # 100 bps annual = 1% annual => daily = 1%/252 => ~0.00397% per day
     expected_daily = 10000.0 * (100.0 / 1e4 / 252)
     np.testing.assert_almost_equal(cost.iloc[0], expected_daily)
+
+
+def test_ledoit_wolf_matches_sklearn():
+    sk = pytest.importorskip("sklearn.covariance")
+    rng = np.random.default_rng(1)
+    X = rng.normal(0, 0.01, (120, 6)) @ rng.normal(size=(6, 6))
+    ret = pd.DataFrame(X)
+    cov, shrink = ledoit_wolf(ret)
+    ref = sk.LedoitWolf().fit(X)
+    np.testing.assert_allclose(cov.to_numpy(), ref.covariance_, rtol=1e-10, atol=1e-14)
+    assert shrink == pytest.approx(ref.shrinkage_, rel=1e-10)
+
+
+def test_correlation_aware_weights_split_correlated_risk():
+    """Two near-duplicate pairs should share one risk slot, not get two."""
+    rng = np.random.default_rng(3)
+    base = rng.normal(0, 0.01, 500)
+    ret = pd.DataFrame(
+        {
+            "dup1": base + rng.normal(0, 0.001, 500),
+            "dup2": base + rng.normal(0, 0.001, 500),
+            "indep": rng.normal(0, 0.01, 500),
+        }
+    )
+    w = correlation_aware_weights(ret, max_weight=1.0)
+    assert w.sum() == pytest.approx(1.0)
+    assert w["indep"] > w["dup1"] + w["dup2"] - 0.1
+    assert w["indep"] > 0.4
+
+
+def test_correlation_aware_weights_respects_cap():
+    rng = np.random.default_rng(4)
+    ret = pd.DataFrame(rng.normal(0, [0.001, 0.02, 0.02, 0.02], (300, 4)))
+    w = correlation_aware_weights(ret, max_weight=0.4)
+    assert (w <= 0.4 + 1e-9).all()
+    assert w.sum() == pytest.approx(1.0)
+
+
+def test_drawdown_breaker_uses_current_drawdown():
+    # Deep historical drawdown, fully recovered: the breaker must be re-armed.
+    eq = pd.Series([1.0, 0.7, 0.8, 1.0, 1.05])
+    assert current_drawdown(eq) == 0.0
+    assert check_drawdown_breaker(eq, RiskLimits(max_drawdown_pct=0.15)) is False
+
+
+def test_cap_gross_exposure_rowwise():
+    w = pd.DataFrame({"A": [1.0, 0.2], "B": [-2.0, -0.2]})
+    capped = cap_gross_exposure(w, max_gross=1.5)
+    assert capped.abs().sum(axis=1).iloc[0] == pytest.approx(1.5)
+    assert capped.iloc[1].tolist() == [0.2, -0.2]

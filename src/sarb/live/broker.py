@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,17 +25,13 @@ class Fill:
 
 class BaseBroker(ABC):
     @abstractmethod
-    def submit_order(self, order: Order) -> Fill | None:
-        ...
+    def submit_order(self, order: Order) -> Fill | None: ...
 
     @abstractmethod
-    def get_position(self, ticker: str) -> float:
-        ...
+    def get_position(self, ticker: str) -> float: ...
 
     @abstractmethod
-    def get_all_positions(self) -> dict[str, float]:
-        ...
+    def get_all_positions(self) -> dict[str, float]: ...
 
     @abstractmethod
-    def get_account_value(self) -> float:
-        ...
+    def get_account_value(self) -> float: ...

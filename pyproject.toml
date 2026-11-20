@@ -1,19 +1,106 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "stat-arb-research-pipeline"
-version = "0.1.0"
+version = "0.2.0"
+description = "Research-grade statistical arbitrage (pairs trading) pipeline with walk-forward validation"
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
+keywords = ["quant", "statistical-arbitrage", "pairs-trading", "cointegration", "backtesting"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business :: Financial :: Investment",
+  "Typing :: Typed",
+]
 dependencies = [
-  "numpy",
-  "pandas",
-  "yfinance",
-  "statsmodels",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scipy>=1.10",
+  "statsmodels>=0.14",
+  "yfinance>=0.2.40",
 ]
 
 [project.optional-dependencies]
-viz = ["matplotlib>=3.5"]
-ml = ["scikit-learn>=1.0"]
-dev = ["pytest>=7.0"]
-all = ["matplotlib>=3.5", "scikit-learn>=1.0", "pytest>=7.0"]
+viz = ["matplotlib>=3.7"]
+ml = ["scikit-learn>=1.3"]
+dev = [
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "ruff>=0.6",
+  "mypy>=1.10",
+  "pandas-stubs>=2.0",
+  "matplotlib>=3.7",
+  "scikit-learn>=1.3",
+]
+all = ["stat-arb-research-pipeline[viz,ml,dev]"]
+
+[project.scripts]
+sarb = "sarb.cli:main"
+
+[project.urls]
+Repository = "https://github.com/Space-Paragon1/Statistical-Arbitrage-pipeline"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+sarb = ["py.typed"]
+
+# --------------------------------------------------------------------------- tooling
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+  "ignore::DeprecationWarning",
+  "ignore::FutureWarning:yfinance.*",
+]
+
+[tool.coverage.run]
+source = ["sarb"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:", "raise NotImplementedError"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY", "PD002", "RUF", "SIM", "C4"]
+ignore = [
+  "E741",    # 'l'/'I' names are conventional in linear algebra
+  "RUF001",  # allow unicode (±, ×) in strings
+  "RUF002",
+  "RUF003",
+  "B008",    # dataclass default factories in signatures are intentional
+  "C408",    # dict(...) for kwargs bundles reads better than literals
+  "B905",    # zip(strict=) - revisit once 3.9 is fully out of the dev toolchain
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["NPY002"]
+"notebooks/**" = ["E402", "F401"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/sarb"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true

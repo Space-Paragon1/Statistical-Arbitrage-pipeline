@@ -1,9 +1,10 @@
 from __future__ import annotations
-import pytest
-import pandas as pd
 
-from sarb.split.time_split import time_train_val_test_split
+import pandas as pd
+import pytest
+
 from sarb.split.rebalance import rolling_windows_by_quarter
+from sarb.split.time_split import time_train_val_test_split
 
 
 def test_time_train_val_test_split(synthetic_prices):

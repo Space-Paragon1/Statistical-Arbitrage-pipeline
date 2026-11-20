@@ -1,11 +1,13 @@
 from __future__ import annotations
+
 from datetime import datetime
-import pandas as pd
+
+import pytest
 
 from sarb.live.broker import Order
 from sarb.live.paper_broker import PaperBroker
-from sarb.live.signal import generate_live_signal, PairSignal
-from sarb.live.runner import LiveConfig, run_live_step
+from sarb.live.runner import LiveConfig, LiveState, run_live_step, target_shares
+from sarb.live.signal import PairSignal, generate_live_signal
 
 
 def test_paper_broker_buy():
@@ -46,8 +48,13 @@ def test_paper_broker_account_value():
 
 def test_generate_live_signal(synthetic_prices):
     sig = generate_live_signal(
-        synthetic_prices, y="Y", x="X",
-        lookback_z=60, entry_z=2.0, exit_z=0.5, train_lookback=300,
+        synthetic_prices,
+        y="Y",
+        x="X",
+        lookback_z=60,
+        entry_z=2.0,
+        exit_z=0.5,
+        train_lookback=300,
     )
     assert isinstance(sig, PairSignal)
     assert sig.y_ticker == "Y"
@@ -74,3 +81,41 @@ def test_run_live_step(synthetic_prices):
     assert isinstance(signals, list)
     assert len(signals) == 1
     assert isinstance(signals[0], PairSignal)
+
+
+def test_target_shares_use_share_hedge_ratio():
+    n_y, n_x = target_shares(1.0, beta=0.3, price_y=40.0, price_x=100.0, gross_notional=7_000)
+    assert n_x / n_y == pytest.approx(-0.3)  # share ratio, not dollar ratio
+    assert abs(n_y) * 40 + abs(n_x) * 100 == pytest.approx(7_000)
+    assert target_shares(0.0, 0.3, 40.0, 100.0, 7_000) == (0.0, 0.0)
+
+
+def test_live_runner_nets_shared_ticker_and_carries_state(universe):
+    broker = PaperBroker(initial_capital=1_000_000.0, fee_bps=0.0, slippage_bps=0.0)
+    cfg = LiveConfig(
+        pairs=[("B", "A"), ("A", "E")],
+        train_lookback=250,
+        lookback_z=40,
+        entry_z=1.0,
+        notional_per_pair=10_000.0,
+    )
+    state = LiveState()
+    for i in range(400, 460):
+        px = universe.iloc[: i + 1]
+        broker.set_current_prices({t: float(px[t].iloc[-1]) for t in px.columns})
+        sigs = run_live_step(px, cfg, broker, state)
+    assert set(state.pairs) == {("B", "A"), ("A", "E")}
+    # Broker book must equal the netted sum of both pairs' targets.
+    expected = {}
+    for sig in sigs:
+        n_y, n_x = target_shares(
+            sig.position,
+            sig.beta,
+            float(px[sig.y_ticker].iloc[-1]),
+            float(px[sig.x_ticker].iloc[-1]),
+            10_000.0,
+        )
+        expected[sig.y_ticker] = expected.get(sig.y_ticker, 0.0) + n_y
+        expected[sig.x_ticker] = expected.get(sig.x_ticker, 0.0) + n_x
+    for tkr, qty in expected.items():
+        assert broker.get_position(tkr) == pytest.approx(qty, abs=0.02)

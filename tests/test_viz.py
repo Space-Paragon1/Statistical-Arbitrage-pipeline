@@ -1,15 +1,16 @@
 from __future__ import annotations
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from matplotlib.figure import Figure
 
 from sarb.viz.charts import (
-    plot_equity_curve,
+    plot_correlation_heatmap,
     plot_drawdown,
+    plot_equity_curve,
+    plot_rolling_beta,
     plot_spread,
     plot_zscore,
-    plot_rolling_beta,
-    plot_correlation_heatmap,
     save_figure,
 )
 
@@ -49,8 +50,9 @@ def test_plot_zscore(synthetic_prices):
 
 def test_plot_rolling_beta():
     rng = np.random.default_rng(42)
-    beta = pd.Series(1.2 + np.cumsum(rng.normal(0, 0.01, 200)),
-                     index=pd.bdate_range("2020-01-01", periods=200))
+    beta = pd.Series(
+        1.2 + np.cumsum(rng.normal(0, 0.01, 200)), index=pd.bdate_range("2020-01-01", periods=200)
+    )
     fig = plot_rolling_beta(beta)
     assert isinstance(fig, Figure)
 

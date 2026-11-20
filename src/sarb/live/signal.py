@@ -1,9 +1,18 @@
+"""Live signal generation.
+
+Uses exactly the same signal path as the walk-forward backtest
+(:func:`compute_pair_signals` + :func:`next_state`), so a strategy that is
+backtested is the strategy that trades.
+"""
+
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 import pandas as pd
 
-from sarb.features.spread import fit_hedge_ratio, compute_spread, rolling_zscore
-from sarb.strategy.pairs import generate_spread_positions
+from sarb.features.spread import compute_pair_signals, fit_hedge_ratio
+from sarb.strategy.pairs import PositionState, SignalRules, next_state
 
 
 @dataclass(frozen=True)
@@ -11,10 +20,11 @@ class PairSignal:
     y_ticker: str
     x_ticker: str
     z_score: float
-    position: float  # +1, -1, or 0
+    position: float  # target spread position after today's close: +1, -1 or 0
     alpha: float
-    beta: float
+    beta: float  # share hedge ratio: short `beta` shares of x per share of y
     timestamp: pd.Timestamp
+    bars_held: int = 0
 
 
 def generate_live_signal(
@@ -26,37 +36,54 @@ def generate_live_signal(
     exit_z: float = 0.5,
     train_lookback: int = 504,
     hedge_method: str = "ols",
+    current: PositionState | None = None,
+    stop_z: float | None = None,
+    max_holding: int | None = None,
 ) -> PairSignal:
-    """
-    Generate signal from the latest available data.
-    Uses the last train_lookback days to fit hedge ratio,
-    then computes current z-score and position.
-    """
-    px = prices[[y, x]].dropna().tail(train_lookback + lookback_z)
-    if len(px) < train_lookback:
-        return PairSignal(
-            y_ticker=y, x_ticker=x, z_score=0.0, position=0.0,
-            alpha=0.0, beta=0.0, timestamp=px.index[-1],
-        )
+    """Target position after observing the latest close.
 
-    train = px.iloc[:train_lookback]
+    ``current`` is the strategy's state going into today (position and bars held).
+    If omitted, the state is reconstructed by replaying the signal history, which
+    is what a freshly started process should do.
+    """
+    rules = SignalRules(entry_z=entry_z, exit_z=exit_z, stop_z=stop_z, max_holding=max_holding)
+    px = prices[[y, x]].dropna()
+    ts = px.index[-1]
+    if len(px) < train_lookback + 1:
+        return PairSignal(y, x, 0.0, 0.0, 0.0, 0.0, ts)
 
     if hedge_method == "kalman":
-        from sarb.features.kalman import fit_hedge_ratio_kalman
-        alpha, beta = fit_hedge_ratio_kalman(train[y], train[x])
+        window = px  # the filter needs its whole history
     else:
-        alpha, beta = fit_hedge_ratio(train[y], train[x])
+        window = px.tail(train_lookback + lookback_z + 1) if current is not None else px
+    sig = compute_pair_signals(window[y], window[x], train_lookback, lookback_z, hedge_method)
+    z_hist = sig["z"]
 
-    spread = compute_spread(px[y], px[x], alpha, beta)
-    z = rolling_zscore(spread, lookback_z)
-    pos = generate_spread_positions(z, entry_z, exit_z)
+    if current is None:
+        st = PositionState()
+        for zi in z_hist.iloc[:-1].to_numpy(dtype=float):
+            st = next_state(st, zi, rules)
+    else:
+        st = current
+    z_now = float(z_hist.iloc[-1])
+    st = next_state(st, z_now, rules)
+
+    # The hedge ratio to hold overnight: refit including today's close.
+    if hedge_method == "kalman":
+        from sarb.features.kalman import fit_hedge_ratio_kalman
+
+        alpha, beta = fit_hedge_ratio_kalman(px[y], px[x])
+    else:
+        train = px.tail(train_lookback)
+        alpha, beta = fit_hedge_ratio(train[y], train[x])
 
     return PairSignal(
         y_ticker=y,
         x_ticker=x,
-        z_score=float(z.iloc[-1]) if pd.notna(z.iloc[-1]) else 0.0,
-        position=float(pos.iloc[-1]),
+        z_score=z_now if pd.notna(z_now) else 0.0,
+        position=st.position,
         alpha=alpha,
         beta=beta,
-        timestamp=px.index[-1],
+        timestamp=ts,
+        bars_held=st.bars_held,
     )

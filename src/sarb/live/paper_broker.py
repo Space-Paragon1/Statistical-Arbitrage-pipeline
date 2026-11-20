@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sarb.live.broker import BaseBroker, Order, Fill
+from sarb.live.broker import BaseBroker, Fill, Order
 
 
 @dataclass
@@ -31,10 +32,7 @@ class PaperBroker(BaseBroker):
 
         # Apply slippage
         slip = mid * (self.slippage_bps / 1e4)
-        if order.quantity > 0:
-            fill_price = mid + slip
-        else:
-            fill_price = mid - slip
+        fill_price = mid + slip if order.quantity > 0 else mid - slip
 
         notional = abs(order.quantity * fill_price)
         commission = notional * (self.fee_bps / 1e4)
@@ -70,8 +68,7 @@ class PaperBroker(BaseBroker):
 
     def get_account_value(self) -> float:
         pos_value = sum(
-            qty * self._price_cache.get(tkr, 0.0)
-            for tkr, qty in self._positions.items()
+            qty * self._price_cache.get(tkr, 0.0) for tkr, qty in self._positions.items()
         )
         return self._cash + pos_value
 

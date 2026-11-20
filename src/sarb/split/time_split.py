@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import pandas as pd
+
 
 def time_train_test_split(
     df: pd.DataFrame, train_frac: float = 0.7
