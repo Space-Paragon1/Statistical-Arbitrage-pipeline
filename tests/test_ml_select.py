@@ -1,12 +1,13 @@
 from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 
 from sarb.research.ml_select import (
-    cluster_pairs_optics,
-    cluster_pairs_dbscan,
-    ml_prefilter_pairs,
     ClusterPairScore,
+    cluster_pairs_dbscan,
+    cluster_pairs_optics,
+    ml_prefilter_pairs,
 )
 
 
@@ -49,9 +50,30 @@ def test_ml_prefilter_pairs():
     px = _make_4ticker_prices()
     train_idx = px.index[:200]
     result = ml_prefilter_pairs(
-        prices=px, tickers=list(px.columns), train_idx=train_idx,
-        method="optics", max_pairs=10,
+        prices=px,
+        tickers=list(px.columns),
+        train_idx=train_idx,
+        method="optics",
+        max_pairs=10,
     )
     assert isinstance(result, list)
     assert len(result) >= 1
     assert all(isinstance(p, tuple) and len(p) == 2 for p in result)
+
+
+def test_features_encode_correlation_distance():
+    """Squared distance between standardised series must equal 2(1 - rho)."""
+    from sarb.research.ml_select import ticker_features
+
+    ret = _make_4ticker_prices().pct_change().dropna()
+    X = ticker_features(ret)
+    rho = ret.corr().loc["A", "C"]
+    d2 = float(((X[0] - X[2]) ** 2).sum())
+    assert abs(d2 - 2 * (1 - rho)) < 1e-9
+
+
+def test_optics_groups_correlated_tickers():
+    ret = _make_4ticker_prices().pct_change().dropna()
+    pairs = {(p.y, p.x) for p in cluster_pairs_dbscan(ret, eps=1.0)}
+    assert ("A", "B") in pairs and ("C", "D") in pairs
+    assert ("A", "C") not in pairs

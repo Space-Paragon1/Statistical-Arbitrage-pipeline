@@ -1,12 +1,12 @@
 from __future__ import annotations
+
 import numpy as np
-import pandas as pd
 
 from sarb.features.kalman import (
-    kalman_hedge_ratio,
-    fit_hedge_ratio_kalman,
     KalmanConfig,
     KalmanResult,
+    fit_hedge_ratio_kalman,
+    kalman_hedge_ratio,
 )
 
 

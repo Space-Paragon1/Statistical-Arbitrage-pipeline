@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import pandas as pd
+
 
 def quarter_boundaries(index: pd.DatetimeIndex) -> list[pd.Timestamp]:
     """
@@ -12,10 +14,11 @@ def quarter_boundaries(index: pd.DatetimeIndex) -> list[pd.Timestamp]:
     first_dates = idx.to_series().groupby(q).min()
     return list(first_dates.values)
 
+
 def rolling_windows_by_quarter(
     prices: pd.DataFrame,
-    train_days: int = 504,   # ~2 years
-    val_days: int = 126,     # ~6 months
+    train_days: int = 504,  # ~2 years
+    val_days: int = 126,  # ~6 months
 ) -> list[tuple[pd.Index, pd.Index, pd.Index]]:
     """
     For each quarter start t:

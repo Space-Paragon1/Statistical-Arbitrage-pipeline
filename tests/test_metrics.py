@@ -1,8 +1,18 @@
 from __future__ import annotations
+
 import numpy as np
 import pandas as pd
+import pytest
 
-from sarb.metrics.performance import sharpe, max_drawdown, cagr
+from sarb.metrics.performance import (
+    cagr,
+    max_drawdown,
+    max_drawdown_duration,
+    performance_summary,
+    sharpe,
+    sortino,
+    trade_statistics,
+)
 
 
 def test_sharpe_zero_returns():
@@ -41,3 +51,44 @@ def test_cagr_known():
 def test_cagr_flat():
     eq = pd.Series([1.0] * 100)
     assert cagr(eq) == 0.0
+
+
+def test_sortino_ignores_upside_volatility():
+    r = pd.Series([0.02, -0.01, 0.03, -0.01, 0.05])
+    assert sortino(r) > sharpe(r)
+
+
+def test_max_drawdown_duration():
+    eq = pd.Series([1.0, 0.9, 0.95, 1.01, 0.99, 0.98, 1.02])
+    assert max_drawdown_duration(eq) == 2
+
+
+def test_trade_statistics():
+    pos = pd.Series([0, 1, 1, 1, 0, -1, -1, 0], dtype=float)
+    ret = pd.Series([0, 0.01, 0.01, -0.005, 0, -0.02, 0.005, 0])
+    st = trade_statistics(pos, ret)
+    assert st["n_trades"] == 2
+    assert st["hit_rate"] == pytest.approx(0.5)
+    assert st["avg_holding_days"] == pytest.approx(2.5)
+
+
+def test_performance_summary_on_backtest(universe):
+    from sarb.backtest.walkforward import walkforward_pairs_backtest
+
+    bt = walkforward_pairs_backtest(universe, "B", "A", 250, 40, 1.5, 0.3, 1.0, 0.5)
+    s = performance_summary(bt)
+    for key in (
+        "sharpe",
+        "sortino",
+        "cagr",
+        "max_drawdown",
+        "ann_turnover",
+        "time_in_market",
+        "n_trades",
+        "hit_rate",
+        "gross_sharpe",
+        "cost_drag_ann",
+    ):
+        assert key in s
+    assert s["gross_sharpe"] >= s["sharpe"]
+    assert 0 < s["time_in_market"] < 1

@@ -1,9 +1,14 @@
+"""Walk-forward single-pair backtest with a daily hedge-ratio refit."""
+
 from __future__ import annotations
+
 import pandas as pd
 
-from sarb.features.spread import fit_hedge_ratio, compute_spread, rolling_zscore
-from sarb.strategy.pairs import generate_spread_positions
-from sarb.backtest.engine import backtest_pairs
+from sarb.backtest.engine import backtest_weights, pair_weights
+from sarb.features.kalman import KalmanConfig
+from sarb.features.spread import compute_pair_signals
+from sarb.strategy.pairs import SignalRules, spread_states
+
 
 def walkforward_pairs_backtest(
     prices: pd.DataFrame,
@@ -17,97 +22,51 @@ def walkforward_pairs_backtest(
     slippage_bps: float,
     leverage: float = 1.0,
     hedge_method: str = "ols",
+    stop_z: float | None = None,
+    max_holding: int | None = None,
+    short_borrow_cost_bps: float = 0.0,
+    kalman_config: KalmanConfig | None = None,
 ) -> pd.DataFrame:
+    """Walk-forward backtest: refit the hedge ratio every day on past data only.
+
+    For each bar ``t``:
+
+    1. ``alpha_t, beta_t`` are fitted on ``[t - train_lookback, t)`` (OLS) or are
+       the Kalman prior given data through ``t-1``.
+    2. ``z_t`` is the z-score of today's spread over the trailing ``z_lookback``
+       window, evaluated with today's parameters.
+    3. A single persistent state machine turns ``z_t`` into the position decided
+       at close ``t``, which is *held over* ``t+1`` together with the hedge
+       ratio known at close ``t``.
+
+    Everything is vectorised except the O(n) state machine, so a 10-year daily
+    backtest runs in milliseconds.
     """
-    Walk-forward:
-    For each day t after you have train_lookback days, refit alpha/beta on the prior window,
-    compute spread/z, generate today's position from yesterday's z (no lookahead),
-    then apply returns with costs.
+    px = prices[[y, x]].dropna()
+    sig = compute_pair_signals(
+        px[y], px[x], train_lookback, z_lookback, hedge_method, kalman_config
+    )
+    rules = SignalRules(entry_z=entry_z, exit_z=exit_z, stop_z=stop_z, max_holding=max_holding)
+    state = spread_states(sig["z"], rules)
 
-    hedge_method: "ols" (default) or "kalman"
-    """
-    px = prices[[y, x]].dropna().copy()
-
-    pos = pd.Series(index=px.index, data=0.0)
-    spread_all = pd.Series(index=px.index, data=float("nan"))
-    z_all = pd.Series(index=px.index, data=float("nan"))
-    alpha_series = pd.Series(index=px.index, data=float("nan"))
-    beta_series = pd.Series(index=px.index, data=float("nan"))
-
-    if hedge_method == "kalman":
-        from sarb.features.kalman import kalman_hedge_ratio
-
-        # Run Kalman filter once on entire series (online, so beta[t] uses only data up to t)
-        kr = kalman_hedge_ratio(px[y], px[x])
-        alpha_series = kr.alpha.copy()
-        beta_series = kr.beta.copy()
-
-        for i in range(train_lookback, len(px)):
-            a_i = alpha_series.iloc[i]
-            b_i = beta_series.iloc[i]
-
-            s = compute_spread(px[y].iloc[: i + 1], px[x].iloc[: i + 1], a_i, b_i)
-            z = rolling_zscore(s, z_lookback)
-
-            spread_all.iloc[i] = s.iloc[-1]
-            z_all.iloc[i] = z.iloc[-1]
-
-            p = generate_spread_positions(z, entry_z, exit_z)
-            pos.iloc[i] = p.iloc[-1]
-    else:
-        # OLS: refit alpha/beta on each rolling window
-        for i in range(train_lookback, len(px)):
-            train_slice = px.iloc[i - train_lookback : i]
-            alpha, beta = fit_hedge_ratio(train_slice[y], train_slice[x])
-
-            alpha_series.iloc[i] = alpha
-            beta_series.iloc[i] = beta
-
-            s = compute_spread(px[y].iloc[: i + 1], px[x].iloc[: i + 1], alpha, beta)
-            z = rolling_zscore(s, z_lookback)
-
-            spread_all.iloc[i] = s.iloc[-1]
-            z_all.iloc[i] = z.iloc[-1]
-
-            p = generate_spread_positions(z, entry_z, exit_z)
-            pos.iloc[i] = p.iloc[-1]
-
-    beta_series = beta_series.ffill().fillna(0.0)
-
-    ret = px.pct_change().fillna(0.0)
-
-    w_y = pos * 1.0
-    w_x = pos * (-beta_series)
-
-    gross = (w_y.abs() + w_x.abs()).replace(0.0, pd.NA)
-    scale = (leverage / gross).fillna(0.0)
-    w_y = w_y * scale
-    w_x = w_x * scale
-
-    port_ret_gross = w_y * ret[y] + w_x * ret[x]
-
-    dw_y = w_y.diff().abs().fillna(w_y.abs())
-    dw_x = w_x.diff().abs().fillna(w_x.abs())
-    turnover = dw_y + dw_x
-
-    cost_rate = (fee_bps + slippage_bps) / 1e4
-    costs = turnover * cost_rate
-    port_ret_net = port_ret_gross - costs
+    pos = state.shift(1).fillna(0.0)
+    # sig["beta"] at t is fitted on data <= t-1, i.e. it is known at close t-1 and
+    # is the freshest hedge ratio available when the position for bar t is set.
+    W = pair_weights(px[y], px[x], pos, sig["beta"], leverage)
+    W.columns = [y, x]
+    rets = px.pct_change().fillna(0.0)
+    bt = backtest_weights(W, rets, fee_bps + slippage_bps, short_borrow_cost_bps)
 
     out = pd.DataFrame(
         {
-            "alpha": alpha_series,
-            "beta": beta_series,
-            "z": z_all,
+            "alpha": sig["alpha"],
+            "beta": sig["beta"],
+            "spread": sig["spread"],
+            "z": sig["z"],
             "pos": pos,
-            "w_y": w_y,
-            "w_x": w_x,
-            "turnover": turnover,
-            "ret_gross": port_ret_gross,
-            "costs": costs,
-            "ret_net": port_ret_net,
+            "w_y": W[y],
+            "w_x": W[x],
         },
         index=px.index,
     )
-    out["equity"] = (1.0 + out["ret_net"]).cumprod()
-    return out
+    return pd.concat([out, bt], axis=1)

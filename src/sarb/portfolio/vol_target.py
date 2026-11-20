@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import numpy as np
 import pandas as pd
+
 
 def realized_vol(daily_returns: pd.Series) -> float:
     """
@@ -11,6 +13,7 @@ def realized_vol(daily_returns: pd.Series) -> float:
         return float("nan")
     v = float(r.std(ddof=0))
     return v
+
 
 def vol_target_scale(
     daily_returns: pd.Series,
